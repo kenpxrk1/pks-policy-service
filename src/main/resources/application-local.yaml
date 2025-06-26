@@ -10,6 +10,19 @@ spring:
     hikari:
       schema: policy-service-db
 
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      exchange: db-update-exchange
+      routing-key: db.update
+
+
   jpa:
     hibernate:
       ddl-auto: update
@@ -19,7 +32,6 @@ spring:
         format_sql: true
         default_schema: policy-service-db
     open-in-view: false
-
 
 jwt:
   secret-key: co7IB8BVZ2ZCWoyjnKbrX4ByykVOvY38vtv2DNK9kN4=

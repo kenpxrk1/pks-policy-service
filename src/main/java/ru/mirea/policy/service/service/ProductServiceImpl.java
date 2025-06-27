@@ -10,18 +10,22 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import ru.mirea.policy.service.dto.EventType;
 import ru.mirea.policy.service.dto.ProductCreateDto;
+import ru.mirea.policy.service.dto.ProductEvent;
 import ru.mirea.policy.service.dto.ProductResponseDto;
 import ru.mirea.policy.service.dto.ProductUpdateDto;
 import ru.mirea.policy.service.entity.InsuranceProduct;
 import ru.mirea.policy.service.entity.constant.ProductStatus;
 import ru.mirea.policy.service.exception.InvalidStateException;
+import ru.mirea.policy.service.integration.DbUpdateEventPublisher;
 import ru.mirea.policy.service.mapper.ProductMapper;
 import ru.mirea.policy.service.repository.ProductRepository;
 import ru.mirea.policy.service.specification.ProductSpecification;
 import ru.mirea.policy.service.specification.constant.PriceFilterType;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,6 +35,7 @@ import java.util.UUID;
 public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final ProductMapper productMapper;
+    private final DbUpdateEventPublisher dbPublisher;
 
     @Transactional(readOnly = true)
     @Override
@@ -63,9 +68,13 @@ public class ProductServiceImpl implements ProductService {
         log.info("Creating entity product={}", productCreateDto);
         InsuranceProduct entity = productMapper.toEntity(productCreateDto);
         productRepository.save(entity);
+
+        sendUpdateEvent(entity, EventType.PRODUCT_CREATED);
+
         log.info("product with id={} successfully created", entity.getId());
         return entity.getId();
     }
+
 
     @Transactional
     @Override
@@ -76,6 +85,8 @@ public class ProductServiceImpl implements ProductService {
             case INACTIVE -> throw new InvalidStateException("Product already deactivated");
         }
         log.info("Product with id={} successfully deactivated: status={}", product.getId(), product.getStatus().name());
+
+        sendUpdateEvent(product, EventType.PRODUCT_UPDATED);
 
         return product.getId();
     }
@@ -90,6 +101,9 @@ public class ProductServiceImpl implements ProductService {
             case ACTIVE -> throw new InvalidStateException("Product already activated");
         }
         log.info("Product with id={} successfully activated: status={}", product.getId(), product.getStatus().name());
+
+        sendUpdateEvent(product, EventType.PRODUCT_UPDATED);
+
         return product.getId();
     }
 
@@ -99,6 +113,9 @@ public class ProductServiceImpl implements ProductService {
         log.info("Updating product with id={}", productId);
         InsuranceProduct product = findProductEntityByUUID(productId);
         productMapper.updateEntityFromDto(dto, product);
+
+        sendUpdateEvent(product, EventType.PRODUCT_UPDATED);
+
         log.info("Product with id={} successfully updated", product.getId());
         return product.getId();
     }
@@ -109,11 +126,21 @@ public class ProductServiceImpl implements ProductService {
         log.info("Deleting product with id={}", productId);
         InsuranceProduct product = findProductEntityByUUID(productId);
         productRepository.delete(product);
+        sendUpdateEvent(product, EventType.PRODUCT_DELETED);
         log.info("Product with id={} successfully deleted", product.getId());
     }
 
     private InsuranceProduct findProductEntityByUUID(UUID productId) {
         return productRepository.findById(productId)
                 .orElseThrow(() -> new EntityNotFoundException("Product with id=" + productId + " not found"));
+    }
+
+    private void sendUpdateEvent(InsuranceProduct product, EventType eventType) {
+        dbPublisher.sendUpdateEvent(ProductEvent.builder()
+                .productId(product.getId())
+                .eventType(eventType)
+                .eventTime(LocalDateTime.now())
+                .productSnapshot(productMapper.toResponseDto(product))
+                .build());
     }
 }
